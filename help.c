@@ -126,7 +126,7 @@ void prepare_tar(struct tar_t *file, char *filename)
     mtime is the time of data modification, it's also an octal but we'll put 11 chars, we use sprintf
 */
 
-int create_header(struct tar_t *tar_file, struct tar_header header, char *name, unsigned size, unsigned mode, unsigned type)
+int create_header(struct tar_t *tar_file, struct tar_header header, char *name, unsigned size, unsigned mode, unsigned type, char *version)
 {
     memset(&header, 0, sizeof(struct tar_header));
     strncpy(header.name, name, 100);
@@ -136,7 +136,7 @@ int create_header(struct tar_t *tar_file, struct tar_header header, char *name, 
     sprintf(header.uname, "%s", getpwuid(getuid())->pw_name);
     sprintf(header.gname, "%s", getgrgid(getgid())->gr_name);
     sprintf(header.mtime, "%011o", (int)time(NULL));
-    memcpy(header.version, TVERSION, 2);
+    memcpy(header.version, version, 2);
     memcpy(header.magic, TMAGIC, 6);
     memset(header.size, '0', 12);
     header.typeflag = type;
@@ -193,7 +193,7 @@ int create_data(struct tar_t *file, void *data, unsigned size, unsigned nmemb)
     return 0;
 } // tmb não dá pra fugir disso, refatorei oq deu
 
-void create_file(char *name, unsigned typeflag, unsigned mode, int errorNumber)
+void create_file(char *name, unsigned typeflag, unsigned mode, int errorNumber, char *version)
 {
 
     /* Create text for simple file */
@@ -206,8 +206,9 @@ void create_file(char *name, unsigned typeflag, unsigned mode, int errorNumber)
 
     prepare_tar(&tarFile, name);
     /* Save a text file */
-    create_header(&tarFile, header, "test.txt", strlen(text), mode, typeflag);
-    create_data(&tarFile, text, strlen(text), 1);
+    create_header(&tarFile, header, "aaa\0.txt", strlen(text), mode, typeflag, version);
+    if (errorNumber != 2)
+        create_data(&tarFile, text, strlen(text), 1);
     if (!errorNumber)
         tar_finalize(&tarFile);
 }
@@ -225,7 +226,7 @@ int main(int argc, char *argv[])
         return -1;
     }
     int i, total, rv = 0;
-    total = 5;
+    total = 100;
     for (i = 0; i < total; i++)
     {
         char txt[120];
@@ -233,9 +234,15 @@ int main(int argc, char *argv[])
         snprintf(archive, 22, "archive%d.tar", i);
 
         if (i == 0) // First error: not finishing with two blocks of 512 zeros
-            create_file(archive, REGTYPE, 0664, 1);
+            create_file(archive, REGTYPE, 0664, 1, "00");
+        else if (i == 1)
+            create_file(archive, REGTYPE, 0664, 2, "00");
         else
-            create_file(archive, REGTYPE, 0664, 0);
+        {
+            char str[2];
+            sprintf(str, "%d", i);
+            create_file(archive, REGTYPE, 0664, 0, str);
+        }
 
         char cmd[51];
         strncpy(cmd, argv[1], 25);
