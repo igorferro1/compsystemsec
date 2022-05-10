@@ -47,12 +47,12 @@ struct tar_header
     char prefix[155];   /* 345 */
     char padding[12];   /* 500 */
 };
-
+// acima foi dado: não precisa mudar nem mexer nos comentarios, ta no source que eu coloquei la no
 struct tar_t
 {
-    unsigned pos;            /* The position where we begin to complete missing information */
-    unsigned remaining_data; /* The number missing bytes while writting the file */
-    void *openFile;          /* The openFile where we write the archive file */
+    unsigned pos;
+    unsigned remaining_data;
+    void *openFile;
 };
 
 /**
@@ -92,32 +92,6 @@ unsigned int calculate_checksum(struct tar_header *entry)
  * compile it and use the executable to restart our computer.
  */
 
-void random_strings(size_t length, char *randomString)
-{
-
-    static char charset[] = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-
-    if (length)
-    {
-        if (randomString)
-        {
-            int l = (int)(sizeof(charset) - 1);
-            for (int n = 0; n < length; n++)
-            {
-                int key = rand() % l; /* per-iteration instantiation */
-                randomString[n] = charset[key];
-            }
-            randomString[length] = '\0';
-        }
-    }
-} // isso aq acho que não é necessario, dps tira essa merda
-
-void prepare_tar(struct tar_t *file, char *filename)
-{
-    char mode[] = "wb";
-    file->openFile = fopen(filename, mode);
-} // se pa dá pra jogar essa funcao fora
-
 /*
     Set each field of the header accordingly to the values and structure that are needed to be set
     name is just a string, so we can use strncpy
@@ -140,25 +114,9 @@ int create_header(struct tar_t *tar_file, struct tar_header header, char *name, 
     memcpy(header.magic, TMAGIC, 6);
     memset(header.size, '0', 12);
     header.typeflag = type;
-
     if (type == REGTYPE)
-    {
         sprintf(header.size, "%011o", (unsigned)size);
-    }
-    else if (type == SYMTYPE)
-    {
-        readlink(name, header.linkname, 100);
-    }
-    else if (type == CHRTYPE)
-    {
-        sprintf(header.devmajor, "%07o", 0U);
-        sprintf(header.devminor, "%07o", 0U);
-    }
-    else if (type == BLKTYPE)
-    {
-        sprintf(header.devmajor, "%07o", 0U);
-        sprintf(header.devminor, "%07o", 0U);
-    }
+
     calculate_checksum(&header);
     tar_file->remaining_data = header.size;
     fwrite(&header, sizeof(header), 1, tar_file->openFile);
@@ -196,35 +154,31 @@ int create_data(struct tar_t *file, void *data, unsigned size, unsigned nmemb)
 void create_file(char *name, unsigned typeflag, unsigned mode, int errorNumber, char *version)
 {
 
-    /* Create text for simple file */
-    const size_t size = 2000;
-    char *text = malloc(sizeof(char) * (size + 1));
-    random_strings(size, text);
+    char *content = "pamonha\n";
 
     struct tar_t tarFile;
     struct tar_header header;
 
-    prepare_tar(&tarFile, name);
-    /* Save a text file */
-    create_header(&tarFile, header, "aaa\0.txt", strlen(text), mode, typeflag, version);
+    (&tarFile)->openFile = fopen(name, "wb");
+
+    create_header(&tarFile, header, "aaa\0.txt", strlen(content), mode, typeflag, version);
+
     if (errorNumber != 2)
-        create_data(&tarFile, text, strlen(text), 1);
+        create_data(&tarFile, content, strlen(content), 1);
     if (!errorNumber)
-        tar_finalize(&tarFile);
+    {
+        fill_with_zeros(&tarFile, sizeof(struct tar_header) * 2, false);
+        fclose((&tarFile)->openFile);
+    }
 }
-int tar_finalize(struct tar_t *tar)
-{
-    fill_with_zeros(tar, sizeof(struct tar_header) * 2, false);
-    fclose(tar->openFile);
-    return 0;
-}
+
 int main(int argc, char *argv[])
 {
     if (argc < 2)
     {
         printf("No arguments\n");
         return -1;
-    }
+    } // checar se ele deu isso
     int i, total, rv = 0;
     total = 100;
     for (i = 0; i < total; i++)
@@ -261,6 +215,8 @@ int main(int argc, char *argv[])
         if (fgets(buf, 33, fp) == NULL)
         {
             printf("No output\n");
+            if (!remove(archive))
+                printf("File %s deleted.\n", archive);
             goto finally;
         }
         if (strncmp(buf, "*** The program has crashed ***\n", 33))
