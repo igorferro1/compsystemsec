@@ -47,11 +47,9 @@ struct tar_header
     char prefix[155];   /* 345 */
     char padding[12];   /* 500 */
 };
-// acima foi dado: não precisa mudar nem mexer nos comentarios, ta no source que eu coloquei la no
+
 struct tar_t
 {
-    unsigned pos;
-    unsigned remaining_data;
     void *openFile;
 };
 
@@ -98,9 +96,10 @@ unsigned int calculate_checksum(struct tar_header *entry)
     mode, uid, gid are in octal format with 7 chars, so we can use sprintf
     uname and gname are just strings also but we have to limit the size, hence we use sprintf as well
     mtime is the time of data modification, it's also an octal but we'll put 11 chars, we use sprintf
+    we mostly try to crash messing up with these fields
 */
 
-int create_header(struct tar_t *tar_file, struct tar_header header, char *name, unsigned size, unsigned mode, unsigned type, char *version)
+int create_header(struct tar_t *tar_file, struct tar_header header, char *name, int size, int mode, int type, char *version)
 {
     memset(&header, 0, sizeof(struct tar_header));
     strncpy(header.name, name, 100);
@@ -115,61 +114,106 @@ int create_header(struct tar_t *tar_file, struct tar_header header, char *name, 
     memset(header.size, '0', 12);
     header.typeflag = type;
     if (type == REGTYPE)
-        sprintf(header.size, "%011o", (unsigned)size);
+        sprintf(header.size, "%011o", (int)size);
 
     calculate_checksum(&header);
-    tar_file->remaining_data = header.size;
     fwrite(&header, sizeof(header), 1, tar_file->openFile);
     return 0;
-} // acho que tá bom de refatorar, mudei algumas funcoes mas esse fim tá igual, acho que n tem oq fazer mais
+}
 
+/*
+    Function to put zeros if missing to complete the block, or in the end of the file to finish it as an EOF.
+*/
 int fill_with_zeros(struct tar_t *file, int n, bool error)
 {
     if (error)
         return 0;
-    int i;
     char nil = '\0';
+    int i;
     for (i = 0; i < n; i++)
-    {
         if (fwrite(&nil, 1, 1, file->openFile) != 1)
             return -1;
-    }
-    return 0;
-} // tmb não dá pra fugir disso, refatorei oq deu
 
-int create_data(struct tar_t *file, void *data, unsigned size, unsigned nmemb)
-{
-    fwrite(data, size, nmemb, file->openFile);
-    if (file->remaining_data == size)
-    {
-        file->remaining_data = 0;
-        int number_of_zeros = (512 - file->pos % 512) % 512;
-        return fill_with_zeros(file, number_of_zeros, 0);
-    }
-    else
-        file->remaining_data = file->remaining_data - size;
     return 0;
-} // tmb não dá pra fugir disso, refatorei oq deu
+}
 
-void create_file(char *name, unsigned typeflag, unsigned mode, int errorNumber, char *version)
+void create_file(char *name, int typeflag, int mode, int errorNumber, char *version, int sizeLoc)
 {
 
     char *content = "pamonha\n";
 
-    struct tar_t tarFile;
     struct tar_header header;
+    struct tar_t tarFile;
 
     (&tarFile)->openFile = fopen(name, "wb");
 
-    create_header(&tarFile, header, "aaa\0.txt", strlen(content), mode, typeflag, version);
+    if (errorNumber == 5)
+        create_header(&tarFile, header, "aaa\0.txt", sizeLoc, mode, typeflag, version);
+    else if (errorNumber == 6)
+        create_header(&tarFile, header, "aaa\0.txt", strlen(content), mode, typeflag, version);
+    else
+        create_header(&tarFile, header, "aaa\0.txt", strlen(content), mode, typeflag, version);
 
     if (errorNumber != 2)
-        create_data(&tarFile, content, strlen(content), 1);
+    {
+        fwrite(content, strlen(content), 1, (&tarFile)->openFile);
+    }
     if (!errorNumber)
     {
         fill_with_zeros(&tarFile, sizeof(struct tar_header) * 2, false);
         fclose((&tarFile)->openFile);
     }
+}
+
+int test_file(char *archive, char *argv[])
+{
+    int rv = 0;
+    char cmd[51];
+    strncpy(cmd, argv[1], 25);
+    cmd[26] = '\0';
+    strncat(cmd, " ", 1);
+    strncat(cmd, archive, 25);
+    char buf[33];
+    FILE *fp;
+
+    if ((fp = popen(cmd, "r")) == NULL)
+    {
+        printf("Error opening pipe!\n");
+        return -1;
+    }
+
+    if (fgets(buf, 33, fp) == NULL)
+    {
+        printf("No output\n");
+        if (!remove(archive))
+            printf("File %s deleted.\n", archive);
+        goto finally;
+    }
+    if (strncmp(buf, "*** The program has crashed ***\n", 33))
+    {
+        printf("Not the crash message\n");
+        goto finally;
+    }
+    else
+    {
+        char newFile[50] = "success_";
+        strcat(newFile, archive);
+        if (!rename(archive, newFile))
+        {
+            printf("Renamed.\n");
+        }
+        printf("file %s crashed\n", archive);
+        printf("Parabens ze kkkakkkasdsad vai ser pai de novo\n");
+        rv = 1;
+        goto finally;
+    }
+finally:
+    if (pclose(fp) == -1)
+    {
+        printf("Command not found\n");
+        rv = -1;
+    }
+    return rv;
 }
 
 int main(int argc, char *argv[])
@@ -179,23 +223,70 @@ int main(int argc, char *argv[])
         printf("No arguments\n");
         return -1;
     } // checar se ele deu isso
-    int i, total, rv = 0;
-    total = 100;
+    int i, total, rv, j, k, l, m = 0;
+    total = 7;
     for (i = 0; i < total; i++)
     {
         char txt[120];
         char archive[15];
         snprintf(archive, 22, "archive%d.tar", i);
 
-        if (i == 0) // First error: not finishing with two blocks of 512 zeros
-            create_file(archive, REGTYPE, 0664, 1, "00");
+        if (i == 0)
+        { // First error: not finishing with two blocks of 512 zeros
+            create_file(archive, REGTYPE, 0664, 1, "00", 0);
+            // test_file(archive, argv);
+        }
         else if (i == 1)
-            create_file(archive, REGTYPE, 0664, 2, "00");
-        else
-        {
+        { // second error: not putting the file
+            create_file(archive, REGTYPE, 0664, 2, "00", 0);
+            // test_file(archive, argv);
+        }
+        else if (i == 2)
+        { // third error: messing with the version
+
+            for (j = 0; j < 100; j++)
+            {
+                snprintf(archive, 22, "archive%d.tar", (i + j));
+                char str[2];
+                printf("Entrou\n");
+                sprintf(str, "%d", j);
+                create_file(archive, REGTYPE, 0664, 3, str, 0);
+                test_file(archive, argv);
+            }
+        }
+        else if (i == 3)
+        { // fourth error: messing with the type
+            for (k = 0; k < 100; k++)
+            {
+                snprintf(archive, 22, "archive%d.tar", (i + j + k));
+                char str[2];
+                create_file(archive, k, 0664, 4, "00", 0);
+                test_file(archive, argv);
+            }
+        }
+        else if (i == 4)
+        { // fifth error: messing with the size
+          // for (l = 0; l < 100; l++)
+          // {
+            snprintf(archive, 22, "archive%d.tar", (i + j + k));
             char str[2];
-            sprintf(str, "%d", i);
-            create_file(archive, REGTYPE, 0664, 0, str);
+            create_file(archive, REGTYPE, 0664, 5, "00", 0);
+            test_file(archive, argv);
+            // }
+        }
+        else if (i == 5)
+        { // sixth error: ??????? se pá esse não conta
+            for (l = 0; l < 1; l++)
+            {
+                snprintf(archive, 22, "archive%d.tar", (10000));
+                create_file(archive, REGTYPE, 0664, 6, "00", 0);
+                test_file(archive, argv);
+            }
+        }
+        else if (i == 6)
+        {
+            snprintf(archive, 22, "aaaa.tar");
+            create_file(archive, REGTYPE, 0664, 6, "00", 0);
         }
 
         char cmd[51];
@@ -226,7 +317,14 @@ int main(int argc, char *argv[])
         }
         else
         {
-            printf("Parabéns zé kkkakkkasdsad vai ser pai de novo\n");
+            char newFile[50] = "success_";
+            strcat(newFile, archive);
+            if (!rename(archive, newFile))
+            {
+                printf("Renamed.\n");
+            }
+            printf("file %s crashed\n", archive);
+            printf("Parabens ze kkkakkkasdsad vai ser pai de novo\n");
             rv = 1;
             goto finally;
         }
