@@ -99,22 +99,30 @@ unsigned int calculate_checksum(struct tar_header *entry)
     we mostly try to crash messing up with these fields
 */
 
-int create_header(struct tar_t *tar_file, struct tar_header header, char *name, char *size, int mode, char *type, char *version)
+int create_header(struct tar_t *tar_file, struct tar_header header, char *name, char *size, int mode, char *type, char *version, int uidVal, int sizeCrash, int sizePos)
 {
     memset(&header, 0, sizeof(struct tar_header));
     strncpy(header.name, name, 100);
     sprintf(header.mode, "%07o", mode);
-    sprintf(header.uid, "%07o", getuid());
-    sprintf(header.gid, "%07o", getgid());
-    sprintf(header.uname, "%s", getpwuid(getuid())->pw_name);
-    sprintf(header.gname, "%s", getgrgid(getgid())->gr_name);
-    sprintf(header.mtime, "%011o", (int)time(NULL));
+    if (uidVal == -1)
+        sprintf(header.uid, "%07o", getuid());
+    else
+    {
+        printf("uid");
+        header.uid[0] = uidVal;
+    }
+
     memcpy(header.version, version, 2);
     memcpy(header.magic, TMAGIC, 6);
-    memset(header.size, '0', 12);
+    // memset(header.size, '0', 12);
     header.typeflag = type;
-    if (type == REGTYPE)
+    if (sizeCrash == -1)
         sprintf(header.size, "%011o", (int)size);
+    else
+    {
+        char c = (char)sizeCrash;
+        header.size[sizePos] = c;
+    }
 
     calculate_checksum(&header);
     fwrite(&header, sizeof(header), 1, tar_file->openFile);
@@ -137,7 +145,7 @@ int fill_with_zeros(struct tar_t *file, int n, bool error)
     return 0;
 }
 
-void create_file(char *name, char *typeflag, int mode, int errorNumber, char *version, char *sizeLoc)
+void create_file(char *name, char *typeflag, int mode, int errorNumber, char *version, char *sizeLoc, int uidVal, int sizeCrash, int sizePos, int linkname, int poslink)
 {
 
     char *content = "pamonha\n";
@@ -148,9 +156,19 @@ void create_file(char *name, char *typeflag, int mode, int errorNumber, char *ve
     (&tarFile)->openFile = fopen(name, "wb");
 
     if (errorNumber == 5)
-        create_header(&tarFile, header, "aaa\0.txt", sizeLoc, mode, typeflag, version);
+        create_header(&tarFile, header, "aaa", sizeLoc, mode, typeflag, version, uidVal, sizeCrash, sizePos);
+    else if (errorNumber == 6)
+    {
+        create_header(&tarFile, header, "aaa", strlen(content), mode, typeflag, version, uidVal, -1, sizePos);
+    }
+    else if (errorNumber == 7)
+    {
+        create_header(&tarFile, header, "aaa", strlen(content), mode, typeflag, version, uidVal, -1, sizePos);
+        header.linkname[poslink] = linkname;
+        printf("entrou");
+    }
     else
-        create_header(&tarFile, header, "aaa\0.txt", strlen(content), mode, typeflag, version);
+        create_header(&tarFile, header, "aaa", strlen(content), mode, typeflag, version, uidVal, -1, sizePos);
 
     if (errorNumber != 2)
     {
@@ -221,7 +239,7 @@ int main(int argc, char *argv[])
         printf("No arguments\n");
         return -1;
     } // checar se ele deu isso
-    int i, total, rv, j, k, l, m = 0;
+    int i, total, rv, j, k, l, m, n, o, p, q, r, s = 0;
     total = 7;
     for (i = 0; i < total; i++)
     {
@@ -231,12 +249,12 @@ int main(int argc, char *argv[])
 
         if (i == 0)
         { // First error: not finishing with two blocks of 512 zeros
-            create_file(archive, REGTYPE, 0664, 1, "00", 0);
+            create_file(archive, REGTYPE, 0664, 1, "00", 0, -1, -1, 0, 0, 0);
             // test_file(archive, argv);
         }
         else if (i == 1)
         { // second error: not putting the file
-            create_file(archive, REGTYPE, 0664, 2, "00", 0);
+            create_file(archive, REGTYPE, 0664, 2, "00", 0, -1, -1, 0, 0, 0);
             // test_file(archive, argv);
         }
         else if (i == 2)
@@ -248,48 +266,51 @@ int main(int argc, char *argv[])
                 char str[2];
                 printf("Entrou\n");
                 sprintf(str, "%d", j);
-                create_file(archive, REGTYPE, 0664, 3, str, 0);
+                create_file(archive, REGTYPE, 0664, 3, str, 0, -1, -1, 0, 0, 0);
                 test_file(archive, argv);
             }
         }
         else if (i == 3)
         { // fourth error: messing with the typeflag
-            for (k = 0; k < 100; k++)
+            for (k = 0; k < 256; k++)
             {
                 snprintf(archive, 22, "archive%d.tar", (i + j + k));
-                char str[15];
-                snprintf(str, 8, "0x%02d", (k)); // botar valores n ascii aq
-                printf(str);
-                create_file(archive, str, 0664, 4, "00", 0);
+                create_file(archive, k, 0664, 4, "00", 0, -1, -1, 0, 0, 0);
                 test_file(archive, argv);
             }
         }
         else if (i == 4)
-        { // fifth error: messing with the size
-            for (l = 0; l < 100; l++)
+        { // fifth error: messing with the size not working
+            for (n = 0; n < 12; n++)
+                for (l = 0; l < 12; l++)
+                {
+                    snprintf(archive, 22, "archive%d.tar", (i + j + k + l + n));
+                    create_file(archive, REGTYPE, 0664, 5, "00", l, -1, l, n, 0, 0);
+                    test_file(archive, argv);
+                }
+        }
+        else if (i == 5)
+        { // sixth error: uid
+            for (m = 0; m < 256; m++)
             {
-                snprintf(archive, 22, "archive%d.tar", (i + j + k + l));
-                char str[15];
-                snprintf(str, 8, "0x%02d", (k));
-                printf(str);
-                create_file(archive, REGTYPE, 0664, 5, "00", l);
+                snprintf(archive, 22, "archive%d.tar", (i + j + k + l + m + n));
+                create_file(archive, REGTYPE, 0664, 6, "00", 0, m, -1, 0, 0, 0);
                 test_file(archive, argv);
             }
         }
-        // else if (i == 5)
-        // { // sixth error: ??????? se pá esse não conta
-        //     for (l = 0; l < 1; l++)
-        //     {
-        //         snprintf(archive, 22, "archive%d.tar", (10000));
-        //         create_file(archive, REGTYPE, 0664, 0, "00", 0);
-        //         test_file(archive, argv);
-        //     }
-        // }
-        // else if (i == 6)
-        // {
-        //     snprintf(archive, 22, "aaaa.tar");
-        //     create_file(archive, REGTYPE, 0664, 6, "00", 0);
-        // }
+
+        if (i == 5)
+        { // seventh error: linkname not working
+            for (m = 0; m < 100; m++)
+            {
+                for (p = 0; p < 256; p++)
+                {
+                    snprintf(archive, 22, "archive%d.tar", (i + j + k + l + m + n + o + p));
+                    create_file(archive, REGTYPE, 0664, 7, "00", 0, -1, -1, 0, p, m);
+                    test_file(archive, argv);
+                }
+            }
+        }
 
         char cmd[51];
         strncpy(cmd, argv[1], 25);
