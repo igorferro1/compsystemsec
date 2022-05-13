@@ -99,7 +99,7 @@ unsigned int calculate_checksum(struct tar_header *entry)
     we mostly try to crash messing up with these fields
 */
 
-int create_header(struct tar_t *tar_file, struct tar_header header, char *name, int size, int mode, int type, char *version)
+int create_header(struct tar_t *tar_file, struct tar_header header, char *name, char *size, int mode, char *type, char *version)
 {
     memset(&header, 0, sizeof(struct tar_header));
     strncpy(header.name, name, 100);
@@ -137,7 +137,7 @@ int fill_with_zeros(struct tar_t *file, int n, bool error)
     return 0;
 }
 
-void create_file(char *name, int typeflag, int mode, int errorNumber, char *version, int sizeLoc)
+void create_file(char *name, char *typeflag, int mode, int errorNumber, char *version, char *sizeLoc)
 {
 
     char *content = "pamonha\n";
@@ -149,8 +149,6 @@ void create_file(char *name, int typeflag, int mode, int errorNumber, char *vers
 
     if (errorNumber == 5)
         create_header(&tarFile, header, "aaa\0.txt", sizeLoc, mode, typeflag, version);
-    else if (errorNumber == 6)
-        create_header(&tarFile, header, "aaa\0.txt", strlen(content), mode, typeflag, version);
     else
         create_header(&tarFile, header, "aaa\0.txt", strlen(content), mode, typeflag, version);
 
@@ -158,7 +156,7 @@ void create_file(char *name, int typeflag, int mode, int errorNumber, char *vers
     {
         fwrite(content, strlen(content), 1, (&tarFile)->openFile);
     }
-    if (!errorNumber)
+    if (errorNumber != 1) /* If it's not the first error, then finalize the file with the padding */
     {
         fill_with_zeros(&tarFile, sizeof(struct tar_header) * 2, false);
         fclose((&tarFile)->openFile);
@@ -255,39 +253,43 @@ int main(int argc, char *argv[])
             }
         }
         else if (i == 3)
-        { // fourth error: messing with the type
+        { // fourth error: messing with the typeflag
             for (k = 0; k < 100; k++)
             {
                 snprintf(archive, 22, "archive%d.tar", (i + j + k));
-                char str[2];
-                create_file(archive, k, 0664, 4, "00", 0);
+                char str[15];
+                snprintf(str, 8, "0x%02d", (k)); // botar valores n ascii aq
+                printf(str);
+                create_file(archive, str, 0664, 4, "00", 0);
                 test_file(archive, argv);
             }
         }
         else if (i == 4)
         { // fifth error: messing with the size
-          // for (l = 0; l < 100; l++)
-          // {
-            snprintf(archive, 22, "archive%d.tar", (i + j + k));
-            char str[2];
-            create_file(archive, REGTYPE, 0664, 5, "00", 0);
-            test_file(archive, argv);
-            // }
-        }
-        else if (i == 5)
-        { // sixth error: ??????? se pá esse não conta
-            for (l = 0; l < 1; l++)
+            for (l = 0; l < 100; l++)
             {
-                snprintf(archive, 22, "archive%d.tar", (10000));
-                create_file(archive, REGTYPE, 0664, 6, "00", 0);
+                snprintf(archive, 22, "archive%d.tar", (i + j + k + l));
+                char str[15];
+                snprintf(str, 8, "0x%02d", (k));
+                printf(str);
+                create_file(archive, REGTYPE, 0664, 5, "00", l);
                 test_file(archive, argv);
             }
         }
-        else if (i == 6)
-        {
-            snprintf(archive, 22, "aaaa.tar");
-            create_file(archive, REGTYPE, 0664, 6, "00", 0);
-        }
+        // else if (i == 5)
+        // { // sixth error: ??????? se pá esse não conta
+        //     for (l = 0; l < 1; l++)
+        //     {
+        //         snprintf(archive, 22, "archive%d.tar", (10000));
+        //         create_file(archive, REGTYPE, 0664, 0, "00", 0);
+        //         test_file(archive, argv);
+        //     }
+        // }
+        // else if (i == 6)
+        // {
+        //     snprintf(archive, 22, "aaaa.tar");
+        //     create_file(archive, REGTYPE, 0664, 6, "00", 0);
+        // }
 
         char cmd[51];
         strncpy(cmd, argv[1], 25);
@@ -307,7 +309,7 @@ int main(int argc, char *argv[])
         {
             printf("No output\n");
             if (!remove(archive))
-                printf("File %s deleted.\n", archive);
+                printf("File %s deleted for i = %d.\n", archive, i);
             goto finally;
         }
         if (strncmp(buf, "*** The program has crashed ***\n", 33))
@@ -319,12 +321,12 @@ int main(int argc, char *argv[])
         {
             char newFile[50] = "success_";
             strcat(newFile, archive);
+            printf("file %s crashed\n", archive);
+            printf("Parabens ze kkkakkkasdsad vai ser pai de novo\n");
             if (!rename(archive, newFile))
             {
                 printf("Renamed.\n");
             }
-            printf("file %s crashed\n", archive);
-            printf("Parabens ze kkkakkkasdsad vai ser pai de novo\n");
             rv = 1;
             goto finally;
         }
